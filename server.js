@@ -71,11 +71,10 @@ wssCam.on('connection', (ws, request) => {
   console.log('WS client connected to /cam');
 
   ws.on('message', (data, isBinary) => {
-    // ESP32-CAM gửi "type:cam" (text) để đăng ký
     if (!isBinary) {
+      // ESP32-CAM gửi "type:cam" để đăng ký
       const text = data.toString();
       console.log('WS /cam text:', text);
-
       if (text === 'type:cam') {
         camSocket = ws;
         console.log('Registered cam client');
@@ -83,12 +82,14 @@ wssCam.on('connection', (ws, request) => {
       return;
     }
 
-    // Nếu là binary -> giả sử là frame JPEG từ cam, broadcast cho viewers
-    // (viewers là các browser)
+    // Binary: giả sử là JPEG frame -> broadcast tới viewers
     for (const client of viewers) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(data, { binary: true });
-      }
+      if (client.readyState !== WebSocket.OPEN) continue;
+
+      // Bảo vệ realtime: nếu client backlog lớn, bỏ frame này để tránh tích lũy độ trễ [web:86]
+      if (client.bufferedAmount > 512 * 1024) continue;
+
+      client.send(data, { binary: true });
     }
   });
 
@@ -105,8 +106,7 @@ wssCam.on('connection', (ws, request) => {
     console.error('WS /cam error:', err);
   });
 
-  // Tạm thời: nếu không phải cam đã đăng ký, coi là viewer
-  // (ESP32‑CAM sẽ gửi "type:cam" ngay sau khi connect)
+  // Mặc định: nếu chưa gửi "type:cam", coi ws này là viewer
   viewers.add(ws);
 });
 
