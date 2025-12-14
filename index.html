@@ -30,39 +30,78 @@
     button.stop {
       background: #f44336;
     }
+    #status {
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <h2>ESP32 Car Control</h2>
+  <h2>ESP8266 Car Control</h2>
+  <div id="status">Connecting...</div>
 
   <div class="container">
-    <button onclick="sendCmd('forward_left')">FWD+LEFT</button>
-    <button onclick="sendCmd('forward')">FORWARD</button>
-    <button onclick="sendCmd('forward_right')">FWD+RIGHT</button>
+    <button onclick="sendCmd('4')">FWD+LEFT</button>
+    <button onclick="sendCmd('2')">FORWARD</button>
+    <button onclick="sendCmd('5')">FWD+RIGHT</button>
 
     <div></div>
-    <button class="stop" onclick="sendCmd('stop')">STOP</button>
+    <button class="stop" onclick="sendCmd('1')">STOP</button>
     <div></div>
 
-    <button onclick="sendCmd('backward_left')">BACK+LEFT</button>
-    <button onclick="sendCmd('backward')">BACKWARD</button>
-    <button onclick="sendCmd('backward_right')">BACK+RIGHT</button>
+    <button onclick="sendCmd('6')">BACK+LEFT</button>
+    <button onclick="sendCmd('3')">BACKWARD</button>
+    <button onclick="sendCmd('7')">BACK+RIGHT</button>
   </div>
 
   <script>
-    // Tạo WebSocket đến cùng host, path /car
-    const ws = new WebSocket("wss://" + window.location.host + "/car");
+    let ws = null;
+    let reconnectDelay = 1000;        // ms, backoff
+    const maxReconnectDelay = 10000;  // ms
+    const statusEl = document.getElementById('status');
 
-    ws.onopen = () => console.log("WS connected");
-    ws.onclose = () => console.log("WS closed");
-    ws.onerror = (e) => console.error(e);
-    ws.onmessage = (ev) => console.log("From server:", ev.data);
+    function getWsUrl() {
+      const proto = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
+      return proto + window.location.host + '/car';
+    }
 
-    function sendCmd(cmd) {
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(cmd);
+    function connect() {
+      const url = getWsUrl();
+      statusEl.textContent = 'Connecting...';
+      ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        console.log('WS connected');
+        statusEl.textContent = 'Connected';
+        reconnectDelay = 1000; // reset backoff
+      };
+
+      ws.onclose = () => {
+        console.log('WS closed');
+        statusEl.textContent = 'Disconnected. Reconnecting...';
+        ws = null;
+        setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+      };
+
+      ws.onerror = (e) => {
+        console.error('WS error', e);
+      };
+
+      ws.onmessage = (ev) => {
+        console.log('From server:', ev.data);
+      };
+    }
+
+    function sendCmd(code) {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(code);   // gửi '1'..'7' tương ứng với handleCmdByte() trên ESP8266 [web:86]
+      } else {
+        console.warn('WS not ready, cmd skipped:', code);
       }
     }
+
+    connect();
   </script>
 </body>
 </html>
