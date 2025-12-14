@@ -1,0 +1,58 @@
+!DOCTYPE html
+html
+head
+  meta charset=utf-8
+  titleCar Controltitle
+  meta name=viewport content=width=device-width, initial-scale=1
+  style
+    body { font-family Arial; text-align center; margin-top 40px; }
+    .container {
+      display grid;
+      grid-template-columns repeat(3, 100px);
+      grid-template-rows repeat(3, 80px);
+      gap 10px;
+      justify-content center;
+    }
+    button {
+      width 100%;
+      height 100%;
+      font-size 14px;
+      border none;
+      border-radius 10px;
+      cursor pointer;
+      background #4CAF50;
+      color white;
+    }
+    button.stop { background #f44336; }
+  style
+head
+body
+  h2ESP32 Car Controlh2
+  div class=container
+    button onclick=sendCmd('forward_left')FWD+LEFTbutton
+    button onclick=sendCmd('forward')FORWARDbutton
+    button onclick=sendCmd('forward_right')FWD+RIGHTbutton
+    divdiv
+    button class=stop onclick=sendCmd('stop')STOPbutton
+    divdiv
+    button onclick=sendCmd('backward_left')BACK+LEFTbutton
+    button onclick=sendCmd('backward')BACKWARDbutton
+    button onclick=sendCmd('backward_right')BACK+RIGHTbutton
+  div
+
+  script
+    const ws = new WebSocket(wss + location.host + car);
+
+    ws.onopen = () = console.log(WS connected);
+    ws.onclose = () = console.log(WS closed);
+    ws.onerror = (e) = console.error(e);
+    ws.onmessage = (ev) = console.log(From server, ev.data);
+
+    function sendCmd(cmd) {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(cmd);
+      }
+    }
+  script
+body
+html
