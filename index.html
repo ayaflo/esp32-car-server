@@ -2,13 +2,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>Car Control</title>
+  <title>Car Control + Cam</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <style>
     body {
       font-family: Arial;
       text-align: center;
-      margin-top: 40px;
+      margin-top: 20px;
     }
     .container {
       display: grid;
@@ -16,6 +16,7 @@
       grid-template-rows: repeat(3, 80px);
       gap: 10px;
       justify-content: center;
+      margin-top: 10px;
     }
     button {
       width: 100%;
@@ -30,15 +31,27 @@
     button.stop {
       background: #f44336;
     }
-    #status {
-      margin-bottom: 10px;
+    #status, #camStatus {
+      margin-bottom: 8px;
       font-size: 14px;
+    }
+    #video {
+      margin-top: 15px;
+      max-width: 100%;
+      width: 320px;
+      height: auto;
+      border: 1px solid #ccc;
+      background: #000;
     }
   </style>
 </head>
 <body>
-  <h2>ESP8266 Car Control</h2>
-  <div id="status">Connecting...</div>
+  <h2>ESP8266 Car Control + ESP32-CAM Stream</h2>
+
+  <div id="status">Car: Connecting...</div>
+  <div id="camStatus">Cam: Connecting...</div>
+
+  <img id="video" alt="Camera stream" />
 
   <div class="container">
     <button onclick="sendCmd('4')">FWD+LEFT</button>
@@ -55,53 +68,104 @@
   </div>
 
   <script>
-    let ws = null;
-    let reconnectDelay = 1000;        // ms, backoff
-    const maxReconnectDelay = 10000;  // ms
+    // ===== WS /car: điều khiển =====
+    let wsCar = null;
+    let reconnectDelayCar = 1000;
+    const maxReconnectDelayCar = 10000;
     const statusEl = document.getElementById('status');
 
-    function getWsUrl() {
+    function getWsUrl(path) {
       const proto = (window.location.protocol === 'https:') ? 'wss://' : 'ws://';
-      return proto + window.location.host + '/car';
+      return proto + window.location.host + path;
     }
 
-    function connect() {
-      const url = getWsUrl();
-      statusEl.textContent = 'Connecting...';
-      ws = new WebSocket(url);
+    function connectCar() {
+      const url = getWsUrl('/car');
+      statusEl.textContent = 'Car: Connecting...';
+      wsCar = new WebSocket(url);
 
-      ws.onopen = () => {
-        console.log('WS connected');
-        statusEl.textContent = 'Connected';
-        reconnectDelay = 1000; // reset backoff
+      wsCar.onopen = () => {
+        console.log('WS /car connected');
+        statusEl.textContent = 'Car: Connected';
+        reconnectDelayCar = 1000;
+        // đăng ký loại client
+        wsCar.send('type:controller');
       };
 
-      ws.onclose = () => {
-        console.log('WS closed');
-        statusEl.textContent = 'Disconnected. Reconnecting...';
-        ws = null;
-        setTimeout(connect, reconnectDelay);
-        reconnectDelay = Math.min(reconnectDelay * 2, maxReconnectDelay);
+      wsCar.onclose = () => {
+        console.log('WS /car closed');
+        statusEl.textContent = 'Car: Disconnected. Reconnecting...';
+        wsCar = null;
+        setTimeout(connectCar, reconnectDelayCar);
+        reconnectDelayCar = Math.min(reconnectDelayCar * 2, maxReconnectDelayCar);
       };
 
-      ws.onerror = (e) => {
-        console.error('WS error', e);
+      wsCar.onerror = (e) => {
+        console.error('WS /car error', e);
       };
 
-      ws.onmessage = (ev) => {
-        console.log('From server:', ev.data);
+      wsCar.onmessage = (ev) => {
+        console.log('From server (/car):', ev.data);
       };
     }
 
     function sendCmd(code) {
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(code);   // gửi '1'..'7' tương ứng với handleCmdByte() trên ESP8266 [web:86]
+      if (wsCar && wsCar.readyState === WebSocket.OPEN) {
+        wsCar.send(code);
       } else {
-        console.warn('WS not ready, cmd skipped:', code);
+        console.warn('WS /car not ready, cmd skipped:', code);
       }
     }
 
-    connect();
+    // ===== WS /cam: nhận video =====
+    let wsCam = null;
+    let reconnectDelayCam = 1000;
+    const maxReconnectDelayCam = 10000;
+    const camStatusEl = document.getElementById('camStatus');
+    const videoEl = document.getElementById('video');
+
+    function connectCam() {
+      const url = getWsUrl('/cam');
+      camStatusEl.textContent = 'Cam: Connecting...';
+      wsCam = new WebSocket(url);
+      wsCam.binaryType = 'arraybuffer'; // nhận frame JPEG dạng binary
+
+      wsCam.onopen = () => {
+        console.log('WS /cam connected');
+        camStatusEl.textContent = 'Cam: Connected';
+        reconnectDelayCam = 1000;
+        // đăng ký là viewer (không gửi gì đặc biệt cũng được, server đã coi mặc định là viewer)
+      };
+
+      wsCam.onclose = () => {
+        console.log('WS /cam closed');
+        camStatusEl.textContent = 'Cam: Disconnected. Reconnecting...';
+        wsCam = null;
+        setTimeout(connectCam, reconnectDelayCam);
+        reconnectDelayCam = Math.min(reconnectDelayCam * 2, maxReconnectDelayCam);
+      };
+
+      wsCam.onerror = (e) => {
+        console.error('WS /cam error', e);
+      };
+
+      wsCam.onmessage = (ev) => {
+        if (ev.data instanceof ArrayBuffer) {
+          const blob = new Blob([ev.data], { type: 'image/jpeg' });
+          const url = URL.createObjectURL(blob);
+          videoEl.src = url;
+          // giải phóng URL cũ sau khi ảnh load
+          videoEl.onload = () => {
+            URL.revokeObjectURL(url);
+          };
+        } else {
+          console.log('WS /cam text message:', ev.data);
+        }
+      };
+    }
+
+    connectCar();
+    connectCam();
   </script>
 </body>
 </html>
