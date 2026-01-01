@@ -130,3 +130,94 @@ server.on('upgrade', (request, socket, head) => {
 server.listen(PORT, () => {
   console.log(`HTTP+WS server listening on port ${PORT}`);
 });
+
+
+
+// ... giữ nguyên các require và PORT
+
+const MUSIC_DIR = path.join(__dirname, 'music');
+
+function contentTypeByExt(filePath) {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.mp3') return 'audio/mpeg';
+  if (ext === '.wav') return 'audio/wav';
+  if (ext === '.aac') return 'audio/aac';
+  return 'application/octet-stream';
+}
+
+const server = http.createServer((req, res) => {
+  // 1) Trang web như cũ
+  if (req.url === '/' || req.url === '/index.html') {
+    const filePath = path.join(__dirname, 'index.html');
+    fs.readFile(filePath, (err, data) => {
+      if (err) {
+        res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('Internal Server Error');
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(data);
+    });
+    return;
+  }
+
+  // 2) Endpoint phát nhạc: /music/<tenfile>
+  if (req.url.startsWith('/music/')) {
+    const safeName = path.basename(req.url);           // chặn ../
+    const filePath = path.join(MUSIC_DIR, safeName);
+
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+      res.end('Music not found');
+      return;
+    }
+
+    const stat = fs.statSync(filePath);
+    const range = req.headers.range; // ví dụ "bytes=0-"
+
+    const ct = contentTypeByExt(filePath);
+
+    if (!range) {
+      res.writeHead(200, {
+        'Content-Type': ct,
+        'Content-Length': stat.size,
+        'Accept-Ranges': 'bytes',
+        'Cache-Control': 'no-cache',
+      });
+      fs.createReadStream(filePath).pipe(res);
+      return;
+    }
+
+    // Range support
+    const m = range.match(/bytes=(\d+)-(\d*)/);
+    if (!m) {
+      res.writeHead(416);
+      res.end();
+      return;
+    }
+
+    const start = parseInt(m[1], 10);
+    const end = m[2] ? parseInt(m[2], 10) : (stat.size - 1);
+    if (start >= stat.size || end >= stat.size) {
+      res.writeHead(416, { 'Content-Range': `bytes */${stat.size}` });
+      res.end();
+      return;
+    }
+
+    const chunkSize = (end - start) + 1;
+    res.writeHead(206, {
+      'Content-Type': ct,
+      'Content-Length': chunkSize,
+      'Content-Range': `bytes ${start}-${end}/${stat.size}`,
+      'Accept-Ranges': 'bytes',
+      'Cache-Control': 'no-cache',
+    });
+
+    fs.createReadStream(filePath, { start, end }).pipe(res);
+    return;
+  }
+
+  // 404 như cũ
+  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+  res.end('Not found');
+});
